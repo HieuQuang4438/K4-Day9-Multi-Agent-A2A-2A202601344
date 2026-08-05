@@ -1,0 +1,52 @@
+{
+  "lab": "K4 Day 09 - Multi-Agent E-commerce Dispute Resolution",
+  "policy_version": "EC_POLICY_V2",
+  "model": {
+    "model_id": "google/gemma-3-4b-it",
+    "model_family": "Gemma 3",
+    "parameter_size": "4B",
+    "parameter_count": 4000000000,
+    "under_10b_gate": true,
+    "provider": "openrouter",
+    "api_base": "https://openrouter.ai/api/v1/chat/completions",
+    "context_length": 131072,
+    "temperature": 0.0,
+    "max_tokens": 1024,
+    "declared_in_source": "src/config.py"
+  },
+  "agents": [
+    { "name": "coordinator", "model_id": "google/gemma-3-4b-it", "role": "case intake, task dispatch, final assembly" },
+    { "name": "customer", "model_id": "google/gemma-3-4b-it", "role": "customer identity and order history" },
+    { "name": "order_product", "model_id": "google/gemma-3-4b-it", "role": "order, items, sellers, products, categories" },
+    { "name": "payment", "model_id": "google/gemma-3-4b-it", "role": "payment rows and reconciliation against item + freight" },
+    { "name": "delivery", "model_id": "google/gemma-3-4b-it", "role": "delivery variance and seller handoff variance" },
+    { "name": "policy", "model_id": "google/gemma-3-4b-it", "role": "EC_POLICY_V2 taxonomy, responsibility, refund, actions" },
+    { "name": "verifier", "model_id": "google/gemma-3-4b-it", "role": "ID format, null handling, array limits, schema gate" }
+  ],
+  "framework": {
+    "orchestration": "custom Python A2A message-passing runtime (src/agents/)",
+    "llm_client": "stdlib urllib over OpenRouter chat/completions",
+    "data_layer": "pandas 2.2.2",
+    "external_agent_frameworks": "none"
+  },
+  "runtime": {
+    "language": "Python",
+    "python_version": "3.12.7",
+    "os": "Windows 11",
+    "dependencies": {
+      "pandas": "2.2.2"
+    }
+  },
+  "dataset": {
+    "name": "Brazilian E-Commerce Public Dataset by Olist",
+    "source": "https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce",
+    "tables": 9,
+    "local_path": "data/"
+  },
+  "run": {
+    "cases": 50,
+    "input_dir": "input/",
+    "output_dir": "output/",
+    "trace": "logging/trace.jsonl"
+  }
+}
