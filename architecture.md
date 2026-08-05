@@ -298,22 +298,28 @@ Trong mọi nhánh lỗi, hệ thống vẫn ghi ra file output hợp lệ về 
 | Verifier tool | `src/validate.py` | Hoàn thành — 7 nhóm kiểm tra theo mục 4.3 |
 | Trace writer | `src/trace.py` | Hoàn thành — `mode="w"`, lock cho tier 1 song song |
 | Agent runtime | `src/agents/` | Hoàn thành — 7 agent, envelope A2A, tool registry đóng |
-| Entry point | `src/run.py` | Hoàn thành — `--limit`, `--case` |
+| Entry point | `src/run.py` | Hoàn thành — `--limit`, `--case`, `--workers` |
 | Metadata | `logging/metadata.json` | Hoàn thành |
-| Output 50 case | `output/` | Đang chạy lượt đầy đủ |
+| Output 50 case | `output/` | Hoàn thành — 50/50 case |
+| Kiểm tra bài nộp | `tools/check_submission.py` | Hoàn thành — 3 tầng kiểm tra, đóng zip |
+| Tái dựng tất định | `tools/regen.py` | Hoàn thành — dựng lại 50 case không gọi LLM |
 
 ### 8.2 Kết quả kiểm chứng đã thực hiện
 
-Lệnh chạy thử:
-
 ```bash
-python -m src.run --limit 3
+python -m src.run
+python -m tools.check_submission
 ```
 
-- 3/3 case ghi ra output hợp lệ, `validate_output` trả về 0 lỗi
+- 50/50 case ghi ra output hợp lệ, `validate_output` trả về 0 lỗi
 - `primary_issue`, `recommended_refund_brl`, `resolution_actions`, `evidence_ids` trùng khớp tuyệt đối với verdict tất định của `src/policy.py` — tức LLM không làm lệch trường được chấm điểm
-- `confidence` khác nhau giữa các case (0.75 / 0.95 / 0.85), xác nhận Policy Agent thực sự suy luận thay vì trả hằng số
-- Trace ghi 8 dòng mỗi case: 1 dispatch, 4 tier 1, 1 policy, 1 verifier, 1 written
+- `confidence` biến thiên 0.30–0.95 (trung bình 0.86), xác nhận Policy Agent thực sự suy luận thay vì trả hằng số
+- Trace ghi đúng 400 dòng: 8 dòng mỗi case gồm 1 dispatch, 4 tier 1, 1 policy, 1 verifier, 1 written
+- 34 case `action_required`, 16 case `no_action`, tổng refund đề xuất 3437.76 BRL
+
+Tính tái lập: hai lượt chạy độc lập cho ra 48/50 file trùng nhau **từng byte**. Hai file lệch duy nhất chỉ khác trường `confidence` — trường duy nhất do LLM sinh. Toàn bộ phần tất định tái lập chính xác 100%.
+
+Chạy song song: các case độc lập nhau nên `src/run.py` dispatch chúng qua `ThreadPoolExecutor` với `MAX_CASE_WORKERS = 8`, và `src/llm.py` xoay vòng qua mọi key `OPENROUTER_API_KEY*` để phân tán rate limit. Đo thực tế trên 8 case: 42.2 giây so với khoảng 240 giây khi chạy tuần tự, nhanh hơn 5.7 lần. Mỗi case gom bản ghi trace vào buffer rồi ghi một khối qua `TraceWriter.write_block()`, nên dù chạy song song, các dòng của một case vẫn liền mạch và đúng thứ tự.
 
 Đối chiếu tất định trên toàn bộ 50 case cho phân bố phủ đủ 6 nhánh của thang ưu tiên:
 
@@ -328,8 +334,21 @@ python -m src.run --limit 3
 
 6 case `unavailable` không có item row, đi đúng nhánh null handling.
 
-### 8.3 Chưa hoàn thành
+### 8.3 Điểm còn mở
 
-- Lượt chạy đầy đủ 50 case qua agent runtime đang thực hiện; `logging/trace.jsonl` và `output/` hiện chưa phải bản cuối
-- Báo cáo cá nhân `individual_01344_ChuQuangHieu.md` chưa viết
-- Điều kiện kích hoạt của các action bổ sung (`review_seller_handoff`, `verify_refund_completion`, `coordinate_multi_seller_case`, `verify_payment_allocation`) là suy luận từ đề: đề chỉ quy định thứ tự, không quy định điều kiện. Cách hiểu đang dùng nằm ở `src/policy.py`
+Các quy ước dưới đây đề không quy định; cách hiểu đang dùng được khai báo tường minh trong mã nguồn thay vì giấu trong logic.
+
+- **Điều kiện kích hoạt action bổ sung.** Đề chỉ quy định thứ tự của `review_seller_handoff`, `verify_refund_completion`, `coordinate_multi_seller_case`, `verify_payment_allocation`, không quy định khi nào thêm chúng. Cách hiểu đang dùng nằm ở `src/policy.py::resolution_actions`.
+- **Ba quy ước delivery**, khai báo ở `src/config.py`:
+
+  | Cờ | Giá trị đang dùng | Lựa chọn khác | Case bị ảnh hưởng |
+  | --- | --- | --- | ---: |
+  | `EARLY_DELIVERY_VARIANCE` | `signed` — giao sớm báo số âm | `null`, `zero` | 16 |
+  | `HANDOFF_GRANULARITY` | `seller` — gộp theo seller, lấy `shipping_limit_date` sớm nhất | `item` — một dòng mỗi item row | 26 |
+  | `LATE_HANDOFF_THRESHOLD` | `gt` | `gte` | 0 |
+
+  `LATE_HANDOFF_THRESHOLD` không có tác dụng thực tế: không case nào có `handoff_variance_hours` đúng bằng 0.
+
+  Ví dụ trong đề khớp cách tính hiện tại từng chữ số, nhưng order đó chỉ có một item row nên không phân biệt được `seller` với `item`. 26/44 case có item row cho kết quả khác nhau giữa hai cách, và đề không nói rõ chọn cách nào.
+
+Bài nộp giữ nguyên cách tính bám sát công thức ghi trong đề.

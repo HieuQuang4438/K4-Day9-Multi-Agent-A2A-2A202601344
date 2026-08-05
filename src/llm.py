@@ -6,8 +6,10 @@ is part of the normal path, not an error path.
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -22,12 +24,22 @@ class LLMError(RuntimeError):
     pass
 
 
+_key_cycle = itertools.cycle(config.api_keys())
+_key_lock = threading.Lock()
+
+
+def _next_key() -> str:
+    """Round-robin across every configured key; safe from many threads."""
+    with _key_lock:
+        return next(_key_cycle)
+
+
 def _post(payload: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         config.API_BASE,
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {config.api_key()}",
+            "Authorization": f"Bearer {_next_key()}",
             "Content-Type": "application/json",
         },
     )
@@ -62,6 +74,11 @@ def complete(system: str, user: str) -> tuple[str, dict[str, int], int]:
                 },
                 latency_ms,
             )
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            # 429 means this key is rate limited; the next attempt rotates to
+            # another key, so back off briefly rather than giving up.
+            time.sleep(4 * (attempt + 1) if exc.code == 429 else 2**attempt)
         except (urllib.error.URLError, KeyError, TimeoutError, OSError) as exc:
             last_error = exc
             time.sleep(2**attempt)

@@ -28,6 +28,22 @@ class TraceWriter:
             self._handle.flush()
             self.line_count += 1
 
+    def write_block(self, records: list[dict[str, Any]]) -> None:
+        """Write a case's records as one contiguous block.
+
+        With cases running in parallel, per-record writes would interleave
+        between cases. Buffering per case keeps every case's steps together and
+        in order, so the trace stays readable.
+        """
+        stamped = [
+            {"ts": datetime.now(timezone.utc).isoformat(), **record} for record in records
+        ]
+        payload = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in stamped)
+        with self._lock:
+            self._handle.write(payload)
+            self._handle.flush()
+            self.line_count += len(stamped)
+
     def close(self) -> None:
         self._handle.close()
 

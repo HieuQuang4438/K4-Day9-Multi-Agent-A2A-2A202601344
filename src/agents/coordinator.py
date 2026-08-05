@@ -39,7 +39,9 @@ class Coordinator(Agent):
 
     # -- fan-out / fan-in --------------------------------------------------
 
-    def _dispatch_tier1(self, case_id: str, order_id: str) -> dict[str, Envelope]:
+    def _dispatch_tier1(
+        self, case_id: str, order_id: str, records: list[dict[str, Any]]
+    ) -> dict[str, Envelope]:
         def invoke(agent: Agent) -> tuple[str, Envelope]:
             try:
                 return agent.name, agent.run(case_id, order_id)
@@ -63,7 +65,7 @@ class Coordinator(Agent):
                     results[agent.name].flags.append("retried_after_error")
                 except Exception as exc:
                     results[agent.name].flags.append(f"retry_failed:{type(exc).__name__}")
-            self.trace.write(results[agent.name].to_trace(1, ["coordinator"]))
+            records.append(results[agent.name].to_trace(1, ["coordinator"]))
 
         return results
 
@@ -205,7 +207,10 @@ class Coordinator(Agent):
         case_id = case["case_id"]
         order_id = case["customer_request"]["claimed_order_id"]
 
-        self.trace.write(
+        # Buffer this case's records; with cases running in parallel a
+        # per-record write would interleave lines between cases.
+        records: list[dict[str, Any]] = []
+        records.append(
             {
                 "case_id": case_id,
                 "agent": "coordinator",
@@ -219,18 +224,18 @@ class Coordinator(Agent):
         )
 
         deterministic = collect_case_facts(self.store, order_id)
-        envelopes = self._dispatch_tier1(case_id, order_id)
+        envelopes = self._dispatch_tier1(case_id, order_id, records)
         tier1_flags = [flag for env in envelopes.values() for flag in env.flags]
 
         handoff = self._merge_handoff(order_id, envelopes, deterministic)
         policy_envelope = self.policy_agent.run(case_id, handoff, tier1_flags)
-        self.trace.write(policy_envelope.to_trace(2, sorted(envelopes)))
+        records.append(policy_envelope.to_trace(2, sorted(envelopes)))
 
         draft = self._assemble(case_id, handoff, policy_envelope.payload)
 
         for attempt in range(1, MAX_VERIFY_ROUNDS + 1):
             verdict_envelope = self.verifier_agent.run(case_id, draft, handoff, attempt)
-            self.trace.write(verdict_envelope.to_trace(3, ["policy"]))
+            records.append(verdict_envelope.to_trace(3, ["policy"]))
             if verdict_envelope.status == "ok":
                 break
             # Rejected: drop the LLM's array selections and rebuild from source order.
@@ -242,7 +247,7 @@ class Coordinator(Agent):
             draft["case_assessment"]["confidence"] = min(
                 draft["case_assessment"]["confidence"], 0.5
             )
-            self.trace.write(
+            records.append(
                 {
                     "case_id": case_id,
                     "agent": "coordinator",
@@ -260,7 +265,7 @@ class Coordinator(Agent):
             json.dumps(draft, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
 
-        self.trace.write(
+        records.append(
             {
                 "case_id": case_id,
                 "agent": "coordinator",
@@ -272,4 +277,6 @@ class Coordinator(Agent):
                 "model": config.MODEL_ID,
             }
         )
+
+        self.trace.write_block(records)
         return draft

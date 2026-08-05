@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import config
 from .agents.coordinator import Coordinator
@@ -19,6 +21,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="chỉ chạy N case đầu")
     parser.add_argument("--case", type=str, default=None, help="chạy đúng một case, ví dụ EC_001")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=config.MAX_CASE_WORKERS,
+        help="số case chạy song song (cases độc lập nhau)",
+    )
     args = parser.parse_args()
 
     cases = sorted(config.INPUT_DIR.glob("EC_*.json"))
@@ -30,26 +38,46 @@ def main() -> int:
         print("không tìm thấy case nào trong input/", file=sys.stderr)
         return 1
 
-    print(f"model={config.MODEL_ID} cases={len(cases)}")
+    print(f"model={config.MODEL_ID} cases={len(cases)} workers={args.workers} keys={len(config.api_keys())}")
     store = get_store()
     started = time.time()
     failures: list[str] = []
 
     with TraceWriter(config.TRACE_PATH) as trace:
         coordinator = Coordinator(store, trace)
-        for index, case_path in enumerate(cases, start=1):
+        print_lock = threading.Lock()
+        done = 0
+
+        def process(case_path):
             case_started = time.time()
-            try:
-                draft = coordinator.run_case(case_path)
-                print(
-                    f"[{index:>2}/{len(cases)}] {case_path.stem} "
-                    f"{draft['case_assessment']['primary_issue']:<24} "
-                    f"refund={draft['financial_resolution']['recommended_refund_brl']:>8.2f} "
-                    f"{time.time() - case_started:.1f}s"
-                )
-            except Exception as exc:
-                failures.append(case_path.stem)
-                print(f"[{index:>2}/{len(cases)}] {case_path.stem} FAILED: {exc}", file=sys.stderr)
+            draft = coordinator.run_case(case_path)
+            return case_path, draft, time.time() - case_started
+
+        # Cases share no state, so they run concurrently; each case still
+        # flushes its own trace block, keeping the file readable.
+        with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+            futures = {pool.submit(process, path): path for path in cases}
+            for future in as_completed(futures):
+                path = futures[future]
+                try:
+                    case_path, draft, elapsed = future.result()
+                except Exception as exc:
+                    failures.append(path.stem)
+                    with print_lock:
+                        done += 1
+                        print(
+                            f"[{done:>2}/{len(cases)}] {path.stem} FAILED: {exc}",
+                            file=sys.stderr,
+                        )
+                    continue
+                with print_lock:
+                    done += 1
+                    print(
+                        f"[{done:>2}/{len(cases)}] {case_path.stem} "
+                        f"{draft['case_assessment']['primary_issue']:<24} "
+                        f"refund={draft['financial_resolution']['recommended_refund_brl']:>8.2f} "
+                        f"{elapsed:.1f}s"
+                    )
 
         trace_lines = trace.line_count
 

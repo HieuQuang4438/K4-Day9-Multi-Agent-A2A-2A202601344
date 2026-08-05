@@ -44,11 +44,12 @@ Vai trò "All": tôi là người triển khai duy nhất, sở hữu toàn bộ
 | Đối chiếu 50 `claimed_order_id` với CSV | `src/data_store.py`, `src/facts.py` | 50/50 order tồn tại; 36 `delivered`, 8 `canceled`, 6 `unavailable`; 6 order không có item row | Script đối chiếu pandas trên `olist_orders_dataset.csv` |
 | Mã hóa thang ưu tiên EC_POLICY_V2 | `src/policy.py` | Phân bố phủ đủ 6 nhánh: 10/10/8/8/8/6 | Chạy `apply_policy` trên toàn bộ 50 case |
 | Dựng runtime 7 agent | `src/agents/` | 8 dòng trace mỗi case: 1 dispatch, 4 tier 1, 1 policy, 1 verifier, 1 written | `python -m src.run --limit 3`, đếm dòng `logging/trace.jsonl` |
-| Bộ kiểm chứng 3 tầng | `tools/check_submission.py` | 0 lỗi schema, 0 lệch baseline trên 37/37 case đã sinh | `python -m tools.check_submission` |
+| Bộ kiểm chứng 3 tầng | `tools/check_submission.py` | 0 lỗi schema, 0 lệch baseline trên 50/50 case | `python -m tools.check_submission` |
+| Chạy song song 50 case | `src/run.py`, `src/llm.py`, `src/trace.py` | 8 case trong 42.2s thay vì ~240s | `python -m src.run --limit 8 --workers 8` |
 
 Một output cụ thể mà phần việc của tôi tạo ra và giúp xác minh:
 
-`tools/check_submission.py` tính lại verdict tất định thẳng từ CSV rồi diff 8 trường được chấm điểm (`primary_issue`, `secondary_issues`, `case_status`, `recommended_refund_brl`, `resolution_actions`, `evidence_ids`, `root_cause_code`, `responsible_parties`) với file thực nộp. Trên 37 case đã sinh tại thời điểm viết, tất cả trùng khớp tuyệt đối, đồng thời `confidence` biến thiên 0.60–0.95 (trung bình 0.89). Hai con số này chứng minh hai điều ngược nhau nhưng đều cần thiết: LLM không làm lệch trường được chấm điểm, nhưng vẫn thực sự suy luận chứ không trả hằng số.
+`tools/check_submission.py` tính lại verdict tất định thẳng từ CSV rồi diff 8 trường được chấm điểm (`primary_issue`, `secondary_issues`, `case_status`, `recommended_refund_brl`, `resolution_actions`, `evidence_ids`, `root_cause_code`, `responsible_parties`) với file thực nộp. Trên cả 50 case, tất cả trùng khớp tuyệt đối, đồng thời `confidence` biến thiên 0.30–0.95 (trung bình 0.86). Hai con số này chứng minh hai điều ngược nhau nhưng đều cần thiết: LLM không làm lệch trường được chấm điểm, nhưng vẫn thực sự suy luận chứ không trả hằng số.
 
 ## 4. Giải thích phần kỹ thuật đã thực hiện
 
@@ -88,7 +89,7 @@ python -m tools.check_submission
 ```
 
 - **Kết quả mong đợi:** mỗi case ghi ra file hợp lệ, `validate_output` trả 0 lỗi, và 8 trường được chấm điểm trùng khớp verdict tất định tính lại từ CSV.
-- **Kết quả thực tế:** 3/3 case ở lần chạy thử và 37/37 case đã sinh ở lượt chạy đầy đủ đều đạt. `confidence` phân bố 0.60–0.95, trung bình 0.89. Trace đúng 8 dòng mỗi case, thứ tự case tăng dần, không case nào lặp.
+- **Kết quả thực tế:** 50/50 case đạt, `check_submission` báo "không có vấn đề nào". `confidence` phân bố 0.30–0.95, trung bình 0.86. Trace đúng 400 dòng, 8 dòng mỗi case, mỗi case liền một khối. Hai lượt chạy độc lập cho 48/50 file trùng nhau từng byte; hai file lệch chỉ khác `confidence`.
 - **Artifact/log:** `output/EC_*.json`, `logging/trace.jsonl`. Không chứa secret; API key chỉ nằm trong `.env` và `.env` đã bị `.gitignore` chặn.
 
 ## 5. Một quyết định kỹ thuật quan trọng
@@ -145,11 +146,11 @@ Ba điều kiện phải đồng thời đúng: `tools/check_submission.py` báo
 
 Đánh dấu sau khi tự kiểm tra:
 
-- [ ] Nội dung báo cáo phản ánh đúng phần việc và mức hiểu của tôi.
-- [ ] Tôi có thể giải thích luồng end-to-end, không chỉ module mình phụ trách.
-- [ ] Tôi không ghi "đã chạy thành công" cho phần chưa được kiểm chứng.
-- [ ] Báo cáo không chứa `.env`, API key, token hoặc secret.
-- [ ] Báo cáo này không phải bản sao nguyên văn của báo cáo nhóm hoặc báo cáo thành viên khác.
+- [x] Nội dung báo cáo phản ánh đúng phần việc và mức hiểu của tôi.
+- [x] Tôi có thể giải thích luồng end-to-end, không chỉ module mình phụ trách.
+- [x] Tôi không ghi "đã chạy thành công" cho phần chưa được kiểm chứng.
+- [x] Báo cáo không chứa `.env`, API key, token hoặc secret.
+- [x] Báo cáo này không phải bản sao nguyên văn của báo cáo nhóm hoặc báo cáo thành viên khác.
 
 **Họ và tên:** Chu Quang Hiếu
 **Ngày xác nhận:** 2026-08-05
