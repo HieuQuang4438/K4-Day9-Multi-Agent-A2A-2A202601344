@@ -286,13 +286,50 @@ Trong mọi nhánh lỗi, hệ thống vẫn ghi ra file output hợp lệ về 
 
 ## 8. Trạng thái hiện tại
 
+### 8.1 Thành phần
+
 | Thành phần | File | Trạng thái |
 | --- | --- | --- |
 | Data store | `src/data_store.py` | Hoàn thành |
 | Fact tools | `src/facts.py` | Hoàn thành |
-| Policy engine | `src/policy.py` | Hoàn thành, đã chạy thử 50 case |
+| Policy engine | `src/policy.py` | Hoàn thành, đối chiếu tất định trên 50 case |
 | Config | `src/config.py` | Hoàn thành |
+| LLM client | `src/llm.py` | Hoàn thành — backoff 3 lần, bóc code fence, fallback khi JSON hỏng |
+| Verifier tool | `src/validate.py` | Hoàn thành — 7 nhóm kiểm tra theo mục 4.3 |
+| Trace writer | `src/trace.py` | Hoàn thành — `mode="w"`, lock cho tier 1 song song |
+| Agent runtime | `src/agents/` | Hoàn thành — 7 agent, envelope A2A, tool registry đóng |
+| Entry point | `src/run.py` | Hoàn thành — `--limit`, `--case` |
 | Metadata | `logging/metadata.json` | Hoàn thành |
-| Agent runtime | `src/agents/` | Chưa hoàn thành |
-| Trace writer | `src/trace.py` | Chưa hoàn thành |
-| Entry point | `src/run.py` | Chưa hoàn thành |
+| Output 50 case | `output/` | Đang chạy lượt đầy đủ |
+
+### 8.2 Kết quả kiểm chứng đã thực hiện
+
+Lệnh chạy thử:
+
+```bash
+python -m src.run --limit 3
+```
+
+- 3/3 case ghi ra output hợp lệ, `validate_output` trả về 0 lỗi
+- `primary_issue`, `recommended_refund_brl`, `resolution_actions`, `evidence_ids` trùng khớp tuyệt đối với verdict tất định của `src/policy.py` — tức LLM không làm lệch trường được chấm điểm
+- `confidence` khác nhau giữa các case (0.75 / 0.95 / 0.85), xác nhận Policy Agent thực sự suy luận thay vì trả hằng số
+- Trace ghi 8 dòng mỗi case: 1 dispatch, 4 tier 1, 1 policy, 1 verifier, 1 written
+
+Đối chiếu tất định trên toàn bộ 50 case cho phân bố phủ đủ 6 nhánh của thang ưu tiên:
+
+| Primary issue | Số case |
+| --- | ---: |
+| `late_delivery_seller` | 10 |
+| `late_delivery_logistics` | 10 |
+| `canceled_order_paid` | 8 |
+| `valid_split_payment` | 8 |
+| `unsupported_late_claim` | 8 |
+| `unavailable_order_paid` | 6 |
+
+6 case `unavailable` không có item row, đi đúng nhánh null handling.
+
+### 8.3 Chưa hoàn thành
+
+- Lượt chạy đầy đủ 50 case qua agent runtime đang thực hiện; `logging/trace.jsonl` và `output/` hiện chưa phải bản cuối
+- Báo cáo cá nhân `individual_01344_ChuQuangHieu.md` chưa viết
+- Điều kiện kích hoạt của các action bổ sung (`review_seller_handoff`, `verify_refund_completion`, `coordinate_multi_seller_case`, `verify_payment_allocation`) là suy luận từ đề: đề chỉ quy định thứ tự, không quy định điều kiện. Cách hiểu đang dùng nằm ở `src/policy.py`
