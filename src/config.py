@@ -31,6 +31,15 @@ TRACE_PATH = LOG_DIR / "trace.jsonl"
 
 POLICY_VERSION = "EC_POLICY_V2"
 
+# --- Delivery conventions the spec leaves open ---------------------------
+# How to report delivery_variance_hours when the order arrived early:
+#   "signed" keeps the negative number, "null" and "zero" flatten it.
+EARLY_DELIVERY_VARIANCE = "signed"
+# One seller_handoff_analysis row per "seller" (earliest limit) or per "item".
+HANDOFF_GRANULARITY = "seller"
+# Whether a handoff exactly on the deadline counts as late: "gt" or "gte".
+LATE_HANDOFF_THRESHOLD = "gt"
+
 
 def api_key() -> str:
     key = os.environ.get("OPENROUTER_API_KEY")

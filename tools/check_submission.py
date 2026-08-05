@@ -162,16 +162,21 @@ def check() -> tuple[int, list[str]]:
     return checked, problems
 
 
-def build_zip(target: Path) -> None:
-    """Zip exactly the 50 JSON, flat, nothing else."""
+def build_zip(target: Path, source: Path | None = None) -> None:
+    """Zip exactly the 50 JSON inside an output/ folder, nothing else.
+
+    The submission form requires the archive to contain output/EC_0NN.json —
+    a flat archive is rejected and scores zero.
+    """
+    source = source or config.OUTPUT_DIR
+    expected_names = [f"output/{c}.json" for c in EXPECTED]
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
         for case_id in EXPECTED:
-            path = config.OUTPUT_DIR / f"{case_id}.json"
-            archive.write(path, arcname=path.name)
+            archive.write(source / f"{case_id}.json", arcname=f"output/{case_id}.json")
     with zipfile.ZipFile(target) as archive:
         names = archive.namelist()
-    print(f"\nđã tạo {target} — {len(names)} file")
-    if names != [f"{c}.json" for c in EXPECTED]:
+    print(f"\nđã tạo {target} — {len(names)} file trong thư mục output/")
+    if names != expected_names:
         print("CẢNH BÁO: nội dung zip không đúng 50 file mong đợi", file=sys.stderr)
 
 

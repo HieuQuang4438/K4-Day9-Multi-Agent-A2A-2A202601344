@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 
+from . import config
 from .data_store import DataStore
 
 TOLERANCE_BRL = 0.10
@@ -96,6 +97,13 @@ def customer_facts(store: DataStore, order_id: str, customer_id: str) -> dict[st
 
 
 def delivery_facts(store: DataStore, order_id: str) -> dict[str, Any]:
+    """Delivery and handoff variance.
+
+    Three conventions the lab spec leaves open are configurable in
+    src/config.py so the pipeline and the regeneration tool always agree:
+    how an early delivery is reported, whether handoff rows are grouped per
+    seller or per item, and whether an exactly-on-deadline handoff counts late.
+    """
     order = store.order(order_id)
     items = store.items_of(order_id)
 
@@ -103,26 +111,52 @@ def delivery_facts(store: DataStore, order_id: str) -> dict[str, Any]:
     estimated_at = order["order_estimated_delivery_date"]
     carrier_at = order["order_delivered_carrier_date"]
 
-    delivery_variance = _hours(delivered_at, estimated_at)
+    raw_variance = _hours(delivered_at, estimated_at)
+    # delivered_late must come from the raw value: reporting an early delivery
+    # as null or 0 must never change which policy branch the case falls into.
+    delivered_late = bool(raw_variance is not None and raw_variance > 0)
 
-    # Earliest shipping_limit_date per seller: the deadline that seller missed.
+    delivery_variance = raw_variance
+    if raw_variance is not None and raw_variance < 0:
+        if config.EARLY_DELIVERY_VARIANCE == "null":
+            delivery_variance = None
+        elif config.EARLY_DELIVERY_VARIANCE == "zero":
+            delivery_variance = 0.0
+
+    def _is_late(variance: float | None) -> bool:
+        if variance is None:
+            return False
+        return variance >= 0 if config.LATE_HANDOFF_THRESHOLD == "gte" else variance > 0
+
     handoff_analysis: list[dict[str, Any]] = []
     late_seller_ids: list[str] = []
+
     if not items.empty:
-        for seller_id, group in items.groupby("seller_id", sort=False):
-            limit = group["shipping_limit_date"].min()
+        if config.HANDOFF_GRANULARITY == "item":
+            rows = [
+                (str(row["seller_id"]), row["shipping_limit_date"])
+                for _, row in items.sort_values("order_item_id").iterrows()
+            ]
+        else:
+            # Earliest shipping_limit_date per seller: the deadline that seller missed.
+            rows = [
+                (str(seller_id), group["shipping_limit_date"].min())
+                for seller_id, group in items.groupby("seller_id", sort=False)
+            ]
+
+        for seller_id, limit in rows:
             variance = _hours(carrier_at, limit)
-            late = bool(variance is not None and variance > 0)
+            late = _is_late(variance)
             handoff_analysis.append(
                 {
-                    "seller_id": str(seller_id),
+                    "seller_id": seller_id,
                     "shipping_limit_at": _ts(limit),
                     "handoff_variance_hours": variance,
                     "late_handoff": late,
                 }
             )
-            if late:
-                late_seller_ids.append(str(seller_id))
+            if late and seller_id not in late_seller_ids:
+                late_seller_ids.append(seller_id)
 
     return {
         "delivered_at": _ts(delivered_at),
@@ -131,7 +165,7 @@ def delivery_facts(store: DataStore, order_id: str) -> dict[str, Any]:
         "delivery_variance_hours": delivery_variance,
         "seller_handoff_analysis": handoff_analysis,
         "late_handoff_seller_ids": late_seller_ids,
-        "delivered_late": bool(delivery_variance is not None and delivery_variance > 0),
+        "delivered_late": delivered_late,
     }
 
 
