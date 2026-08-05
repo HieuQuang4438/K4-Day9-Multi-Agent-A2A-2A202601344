@@ -6,11 +6,11 @@
 
 | Thông tin       | Nội dung     |
 | --------------- | ------------ |
-| Họ và tên       | [Họ và tên]  |
-| MSSV            | [MSSV]       |
+| Họ và tên       | [Chu Quang Hiếu]  |
+| MSSV            | [2A202601344]       |
 | Khóa/Lớp        | [K4]         |
-| Vai trò chính   | [Vai trò]    |
-| Ngày hoàn thành | [YYYY-MM-DD] |
+| Vai trò chính   | [All]    |
+| Ngày hoàn thành | [2026-08-05] |
 
 ## 2. Vai trò và phạm vi công việc
 
