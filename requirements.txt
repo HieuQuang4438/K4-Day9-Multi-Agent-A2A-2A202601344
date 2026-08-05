@@ -1,0 +1,13 @@
+# K4 Day 09 - Multi-Agent E-commerce Dispute Resolution
+# Python 3.12+
+#
+# Only one third-party dependency. Everything else is stdlib:
+#   urllib (OpenRouter calls), json, re, threading, concurrent.futures,
+#   dataclasses, argparse, pathlib
+#
+# Setup:
+#   pip install -r requirements.txt
+#   echo OPENROUTER_API_KEY=... > .env
+#   python -m src.run
+
+pandas>=2.2,<3
